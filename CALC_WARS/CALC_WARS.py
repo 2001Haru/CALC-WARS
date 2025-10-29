@@ -285,7 +285,7 @@ class Game:
             "Cube: One Steal Card( Steal 3 cards randomly )",
             "Square: One Draw Card( Draw 3 cards randomly )",
             "24 Points: Two Shield Cards( Get 1 shield )",
-            "ZERO: One Ruin card( Destroy 3 cards ramdomly and draw one card)",
+            "ZERO: One Ruin card( Destroy 3 cards ramdomly )",
             "ONE: One Pierce card( Break the opponent's shield )",
             '',
             'If the difference in hand cards between the two players is 6 or more',
