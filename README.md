@@ -1,4 +1,4 @@
-# CALC-WARS
+# CALC WARS
 #### CALC WARS is a very fun two-player game based on the gamepaly of 24 points. You are given Number Cards and Operator Cards, each card could be used for only one time. If you use them to calculate some interesting result, then very magical bonus will be given. How about having a try?
 
 #### To run the game, you need to download the whole fileholder 'CALC WARS'. In the file 'Game_rules' we introduce the complete rules to you, and run the file 'run_game' to play! Just need about 10 mins, you could be the master of the game!
