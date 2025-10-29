@@ -28,7 +28,7 @@ def main():
     print()
     
     try:
-        from twenty_four_game import Game
+        from CALC_WARS import Game
         game = Game()
         print("Game starting...")
         game.run()
@@ -38,3 +38,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
