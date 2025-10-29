@@ -7,12 +7,12 @@
 
 ### Card Library
 #### Cards are divided into Number Cards, Symbol Cards, and Skill Cards. Number Cards contain natural numbers from 1 to 13, with one number per card. Symbol Cards include the six symbols: +, -, *, /, (, ), with one symbol per card. Skill Cards have various types, detailed as follows:
-Factorial: One Heal Card (Recover 30 HP and draw 1 card),
-Cube: One Steal Card (Steal 3 cards randomly),
-Square: One Draw Card (Draw 3 cards randomly),
-24 Points: Two Shield Cards (Get 1 shield),
-ZERO: One Ruin card (Destroy 3 cards randomly),
-ONE: One Pierce card (Break the opponent's shield)
+##### Factorial: One Heal Card (Recover 30 HP and draw 1 card),
+##### Cube: One Steal Card (Steal 3 cards randomly),
+##### Square: One Draw Card (Draw 3 cards randomly),
+##### 24 Points: Two Shield Cards (Get 1 shield),
+##### ZERO: One Ruin card (Destroy 3 cards randomly),
+##### ONE: One Pierce card (Break the opponent's shield)
 #### The left side indicates the number calculated by the player, and the right side indicates the Skill Card obtained and its effect. For example, if Player 1 uses a Number Card 10, a Symbol Card +, and a Number Card 6 to calculate 16, they receive one Steal Card. It is specially noted that 24 is treated as both a factorial and the 24 Points trigger number, while 0 and 1 are only treated as ZERO and ONE trigger numbers respectively (for balance reasons, 0 and 1 are not considered squares, cubes, or factorials). The effects of some Skill Cards will be explained in more detail later.
 
 ### Target, HP, and Shield
@@ -39,12 +39,12 @@ ONE: One Pierce card (Break the opponent's shield)
 
 ### 牌库
 #### 卡牌分为数字牌，符号牌与技能牌。数字牌含有1到13的自然数，每张牌上仅仅一个数字；符号牌是+，-，*，/，（，）的六种符号，每张牌上仅仅一个符号。技能牌则有诸多不同的类型，具体如下：
-Factorial: One Heal Card( Recover 30 HP and draw 1 crad),
-Cube: One Steal Card( Steal 3 cards randomly ),
-Square: One Draw Card( Draw 3 cards randomly ),
-24 Points: Two Shield Cards( Get 1 shield ),
-ZERO: One Ruin card( Destroy 3 cards ramdomly),
-ONE: One Pierce card( Break the opponent's shield )
+##### Factorial: One Heal Card( Recover 30 HP and draw 1 crad),
+##### Cube: One Steal Card( Steal 3 cards randomly ),
+##### Square: One Draw Card( Draw 3 cards randomly ),
+##### 24 Points: Two Shield Cards( Get 1 shield ),
+##### ZERO: One Ruin card( Destroy 3 cards ramdomly),
+##### ONE: One Pierce card( Break the opponent's shield )
 #### 如上左侧分别是指玩家计算得到的数字，右侧则是玩家计算这些特定数字得到的技能牌与其效果。如玩家1使用数字牌10，符号牌+，数字牌6，计算得到16，则可以获得Steal卡一张。此处特别说明，24算作阶乘与24点触发数字，0和1仅仅分别作为ZERO与ONE触发数字( 出于平衡性考虑不将0与1作为平方或立方或阶乘 )。某些技能卡牌效果会在后文继续具体介绍。
 
 ### 靶子，血量与护盾
