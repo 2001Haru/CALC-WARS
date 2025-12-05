@@ -4,6 +4,7 @@ import math
 from enum import Enum
 from typing import List, Dict, Tuple, Optional
 import os
+import numpy as np
 
 # 初始化pygame
 pygame.init()
@@ -71,7 +72,7 @@ class SkillType(Enum):
     DRAW = "DR"          # 抽牌
     SHIELD = "SH"      # 护盾牌
     RUIN = 'RU'   #0牌
-    PIERCE = 'PI'
+    PIERCE = 'PI' #1牌
 
 class Card:
     def __init__(self, value: str, card_type: CardType, skill_type: Optional[SkillType] = None):
@@ -91,6 +92,8 @@ class Player:
         self.skill_cards = []
         self.shield_count = 0
         self.is_active = False
+        self.vec_hand = [0] * 20
+        self.vec_skill = [0] * 6
     
     def add_card(self, card: Card):
         if card.card_type == CardType.SKILL:
@@ -116,7 +119,7 @@ class Target:
     def __init__(self):
         self.red_zone = random.choice([37,41,43,47,53])
         self.yellow_zone = random.sample(range(24, 37),2)
-        self.blue_zone = random.sample([1,2,3,5,6,7,8,10,11,12,13,14,15,17,18,19,20,21,22,23,24],2)+ random.sample([4,9,16],2)
+        self.blue_zone = random.sample([1,2,3,5,6,7,8,10,11,12,13,14,15,17,18,19,20,21,22,23,24],3)+ random.sample([4,9,16],1)
     
     def get_damage(self, result: int) -> int:
         if result == self.red_zone:
@@ -135,11 +138,11 @@ class Button:
         # Windows XP经典按钮颜色
         self.normal_color = (225, 225, 225)    # 浅灰色按钮底色
         self.hover_color = (195, 195, 195)     # 悬停时稍深的灰色
-        self.border_light = (255, 255, 255)     # 亮边框（左上）
-        self.border_dark = (128, 128, 128)     # 暗边框（右下）
+        self.border_light = (255, 255, 255)     # 亮边框
+        self.border_dark = (128, 128, 128)     # 暗边框
         self.text_color = (0, 0, 0)            # 黑色文字
         
-        # 允许自定义颜色，如果不传则使用默认XP风格
+        # 允许自定义颜色，如果不传则使用默认
         if color:
             self.normal_color = color
         if hover_color:
@@ -151,8 +154,8 @@ class Button:
     def draw(self, surface):
         # 确定按钮底色
         if self.is_pressed:
-            base_color = (170, 170, 170)  # 按下时更深的颜色
-            text_offset = 2  # 按下时文字偏移更明显
+            base_color = (170, 170, 170)  # 按下时更深
+            text_offset = 2  # 按下时文字偏移
         else:
             base_color = self.hover_color if self.is_hovered else self.normal_color
             text_offset = 0
@@ -160,7 +163,7 @@ class Button:
         # 绘制按钮主体
         pygame.draw.rect(surface, base_color, self.rect)
         
-        # Windows XP风格立体边框
+
         if self.is_pressed:
             # 按下状态：暗边框在外，亮边框在内
             pygame.draw.line(surface, self.border_dark, self.rect.topleft, self.rect.topright, 2)
@@ -178,26 +181,26 @@ class Button:
             pygame.draw.line(surface, self.border_dark, (self.rect.right-1, self.rect.top+1), 
                            (self.rect.right-1, self.rect.bottom-1), 2)
         
-        # 绘制文字（按下状态文字稍微偏移，模拟按下效果）
+        # 绘制文字 按下状态文字稍微偏移，模拟按下效果
         text_surface = game.font.render(self.text, True, self.text_color)
         text_rect = text_surface.get_rect(center=(self.rect.centerx + text_offset, 
                                                 self.rect.centery + text_offset))
         surface.blit(text_surface, text_rect)
         
     def check_hover(self, mouse_pos):
-        """检查鼠标是否悬停在按钮上"""
+        #检查鼠标是否悬停在按钮上
         self.is_hovered = self.rect.collidepoint(mouse_pos)
         return self.is_hovered
         
     def is_clicked(self, mouse_pos, mouse_click):
-        """检查按钮是否被点击"""
+        #检查按钮是否被点击
         if self.rect.collidepoint(mouse_pos) and mouse_click:
             self.is_pressed = True
             return True
         return False
     
     def update_press_state(self, mouse_buttons):
-        """更新按钮按下状态（需要在鼠标释放时调用）"""
+        #更新按钮按下状态 需要在鼠标释放时调用
         if not mouse_buttons[0]:  # 左键释放
             self.is_pressed = False
     
@@ -205,7 +208,7 @@ class Button:
 class Game:
     def _init_buttons(self):
             """初始化所有按钮"""
-            # 主界面按钮 - 保持你原来的颜色但改为XP风格
+            # 主界面按钮 - 使用Windows XP经典按钮样式
             self.buttons['skill'] = Button(50, 265, 150, 50, "Skill Cards", 
                                         (255, 255, 100), (255, 255, 150))  # 黄色系
             self.buttons['confirm'] = Button(50, 330, 150, 50, "Confirm", 
@@ -254,6 +257,15 @@ class Game:
 
         # 初始化音乐
         pygame.mixer.init()  # 初始化混音器
+
+        self.music_list = [
+            "sounds/background.ogg",  
+            "sounds/background1.ogg", 
+            'sounds/background2.ogg'
+        ]
+
+        self.current_music_index = 0
+
         self.background_music = pygame.mixer.Sound('sounds/background.ogg')  # 加载背景音乐
         self.sound_effects = {
             'click': pygame.mixer.Sound('sounds/click.wav'),
@@ -266,7 +278,7 @@ class Game:
             'ruin': pygame.mixer.Sound('sounds/ruin.wav'),
             'draw': pygame.mixer.Sound('sounds/draw.wav'),
             'shield': pygame.mixer.Sound('sounds/shield.wav'),
-            'win': pygame.mixer.Sound('sounds/win.wav'),
+            'win': pygame.mixer.Sound('sounds/win.wav')
         }
         
         # 音乐音量设置
@@ -282,7 +294,7 @@ class Game:
         # 规则文本
         self.rules_text  = [
             "Factorial: One Heal Card( Recover 20 HP and draw one card )",
-            "Cube: One Steal Card( Steal 3 cards randomly )",
+            "Cube: One Steal Card( Steal 2 cards randomly )",
             "Square: One Draw Card( Draw 3 cards randomly )",
             "24 Points: Two Shield Cards( Get 1 shield )",
             "ZERO: One Ruin card( Destroy 3 cards ramdomly )",
@@ -295,10 +307,27 @@ class Game:
 
         # 初始化游戏
         self.initial_deal()
+
     def play_background_music(self, loop=-1):
         """播放背景音乐"""
         self.background_music.set_volume(self.music_volume)
         self.background_music.play(loop)  # -1表示无限循环
+
+    def play_next_music(self):
+        """播放下一首音乐"""
+        if not self.music_list:  # 如果列表为空
+            return
+            
+        # 加载并播放当前音乐
+        try:
+            pygame.mixer.music.load(self.music_list[self.current_music_index])
+            pygame.mixer.music.play()
+            print(f"正在播放: {self.music_list[self.current_music_index]}")
+        except pygame.error as e:
+            print(f"无法播放音乐: {e}")
+            
+        # 移动到下一首（循环）
+        self.current_music_index = (self.current_music_index + 1) % len(self.music_list)
 
     def stop_background_music(self):
         """停止背景音乐"""
@@ -322,22 +351,10 @@ class Game:
             sound.set_volume(self.sfx_volume)
 
     def load_font(self, size):
-        font_paths = [
-            "C:/Windows/Fonts/msyh.ttc",      # 微软雅黑
-            "C:/Windows/Fonts/simhei.ttf",     # 黑体
-            "C:/Windows/Fonts/simsun.ttc",     # 宋体
-            "C:/Windows/Fonts/simkai.ttf",     # 楷体
-            "/System/Library/Fonts/Arial Unicode MS.ttf",  # macOS
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",  # Linux
-        ]
         try:
             return pygame.font.SysFont("times new roman", size)
         except:
-            for font_path in font_paths:
-                try:
-                    return pygame.font.Font(font_path, size)
-                except:
-                    continue
+            return pygame.font.SysFont()
     
     def get_card_position(self, index: int, start_x: int, start_y: int) -> Tuple[int, int]:
         """计算卡牌位置，支持自动换行"""
@@ -387,10 +404,11 @@ class Game:
     
     def generate_random_card(self) -> Card:
         """生成随机卡牌"""
-        if random.random() < 0.6:  # 60%概率数字牌
+        if random.random() < 0.66667:  # 66.667%概率数字牌
             return Card(str(random.randint(0, 13)), CardType.NUMBER)
-        else:  # 30%概率符号牌
-            operators = ['+','+','-','-', '*', '*','/','+','-','*','(', ')']
+        else:  # 33.333%概率符号牌
+            operators = ['+','+','-','-', '*', '*','/','+','-','*','+','+','-','-', '*', '*','/','/','/','+','-','*','(', ')'] 
+            #加号概率：减号概率：乘号概率：除号概率：括号概率=6:6:6:4:2
             return Card(random.choice(operators), CardType.OPERATOR)
     
     def generate_skill_card(self, skill_type: SkillType) -> Card:
@@ -405,7 +423,7 @@ class Game:
             for card in cards:
                 expression += card.value
             
-            # 检查是否包含运算符（禁止直接组合数字）
+            # 检查是否包含运算符 禁止直接组合数字
             if not any(op in expression for op in ['+', '-', '*', '/', '(', ')']):
                 return None
             
@@ -528,7 +546,7 @@ class Game:
         self.broadcastmessage = ""
         """使用技能牌"""
         if skill_card.skill_type == SkillType.HEAL:
-            # 简化：恢复20点生命值并抽1张牌
+            # 恢复20点生命值并抽1张牌
             self.current_player.hp = min(100, self.current_player.hp + 20)
             self.current_player.add_card(self.generate_random_card())
             self.message = f"{self.current_player.name} used heal card, recovered 20 HP and got one card!"
@@ -541,7 +559,7 @@ class Game:
             self.showing_broadcast = True
 
         elif skill_card.skill_type == SkillType.PIERCE:
-            # 简化：直接破坏对方所有护盾
+            # 直接破坏对方所有护盾
             other_player = self.player2 if self.current_player == self.player1 else self.player1
             other_player.shield_count =0
             self.message = f"{self.current_player.name} used pierce card, broke {other_player.name}'s shield!"
@@ -554,7 +572,7 @@ class Game:
             self.showing_broadcast = True
         
         elif skill_card.skill_type == SkillType.RUIN:
-            # 简化：随机从对方手牌中毁掉3张
+            # 随机从对方手牌中毁掉3张
             other_player = self.player2 if self.current_player == self.player1 else self.player1
             #self.current_player.add_card(self.generate_random_card())
             ruinlist = []
@@ -575,12 +593,12 @@ class Game:
             self.broadcast_alpha = 255
             self.showing_broadcast = True
         elif skill_card.skill_type == SkillType.STEAL:
-            # 简化：随机从对方手牌中偷3张，若手牌差距大于等于6张则偷3张，否则偷1张
+            # 随机从对方手牌中偷牌，若手牌差距大于等于6张则偷2张，否则偷1张
             other_player = self.player2 if self.current_player == self.player1 else self.player1
             stolelist = []
             if self.current_player.hand.__len__() - other_player.hand.__len__() <=6:
                 for i in range(3):
-                    if other_player.hand:
+                    if other_player.hand:  
                         stolen_card = random.choice(other_player.hand)
                         other_player.remove_card(stolen_card)
                         self.current_player.add_card(stolen_card)
@@ -631,7 +649,7 @@ class Game:
         self.current_player.remove_card(skill_card)
     
     def switch_player(self):
-        """切换玩家（结束一次连续操作）"""
+        """切换玩家 结束一次连续操作"""
         self.current_player.is_active = False
         
         self.current_player = self.player2 if self.current_player == self.player1 else self.player1
@@ -670,7 +688,7 @@ class Game:
         if self.player1_round_end and self.player2_round_end:
             self.end_round()
         else:
-            # 切换给对手（如果对手还未结束本轮）
+            # 切换给对手 如果对手还未结束本轮
             other_player = self.player2 if self.current_player == self.player1 else self.player1
             if (other_player == self.player1 and not self.player1_round_end) or \
                (other_player == self.player2 and not self.player2_round_end):
@@ -686,7 +704,7 @@ class Game:
                 self.end_round()
     
     def end_round(self):
-        """结束当前轮次（双方都结束本轮后）"""
+        """结束当前轮次 双方都结束本轮后调用"""
         # 下一轮先手权给当前轮次先结束本轮的玩家
         if self.first_to_end_round is not None:
             self.current_player = self.first_to_end_round
@@ -766,7 +784,7 @@ class Game:
             self.message = "Player 2 has ended the round, no valid operations"
             return
         
-        # 检查手牌点击（根据当前玩家位置）
+        # 检查手牌点击 根据当前玩家位置
         if self.current_player == self.player1:
             # 玩家1的手牌（左侧）
             for i, card in enumerate(self.current_player.hand):
@@ -788,7 +806,7 @@ class Game:
                         self.selected_cards.append(card)
                     return
         
-        # 检查技能牌点击（根据当前玩家位置）
+        # 检查技能牌点击 根据当前玩家位置
         if self.current_player == self.player1:
             # 玩家1的技能牌（左侧上方）
             for i, card in enumerate(self.current_player.skill_cards):
@@ -840,7 +858,7 @@ class Game:
                         self.add_action_message(f"{self.current_player.name} calculated {result}, causing {other_player.name} {actual_damage} points of damage!")
                         self.broadcastmessage = f"{self.current_player.name} calculated {result} and caused {other_player.name} {actual_damage} points of damage!"
                     
-                     # 新增：同时设置广播消息
+                     # 添加广播消息
                     self.broadcast_display_time = pygame.time.get_ticks()
                     self.broadcast_alpha = 255
                     self.showing_broadcast = True
@@ -863,7 +881,7 @@ class Game:
             else:
                 self.message = "Need at least 3 cards"
         
-        if not self.show_rules and self.buttons['end'].rect.collidepoint(x, y):  # 结束按钮（结束连续操作）
+        if not self.show_rules and self.buttons['end'].rect.collidepoint(x, y):  # 结束按钮 结束连续操作
             if not self.player1_round_end and not self.player2_round_end:
                 makeuplist = []
                 for _ in range(2):
@@ -880,10 +898,10 @@ class Game:
             self.end_current_round()
         
     def draw_card(self, card: Card, x: int, y: int, selected: bool = False, alpha: int = 255):
-        """绘制卡牌"""
+        #绘制卡牌
         color = WHITE if not selected else YELLOW
         if alpha < 255:
-            # 创建半透明表面
+            # 半透明表面
             card_surface = pygame.Surface((CARD_WIDTH, CARD_HEIGHT))
             card_surface.set_alpha(alpha)
             card_surface.fill(color)
@@ -933,7 +951,7 @@ class Game:
         background = pygame.transform.scale(background, (SCREEN_WIDTH, SCREEN_HEIGHT))
         self.screen.blit(background, (0, 0))
 
-        # 绘制标题（XP风格）
+        # 绘制标题
         title_font = pygame.font.SysFont('Arial', 60, bold=True)
         title = title_font.render("CALC WARS", True, (0, 0, 128))  # 深蓝色标题
         self.screen.blit(title, (SCREEN_WIDTH//2 - title.get_width()//2, 10))
@@ -943,8 +961,7 @@ class Game:
         player1_text = f"Player 1 HP: {self.player1.hp} Shield: {self.player1.shield_count}"
         player2_text = f"Player 2 HP: {self.player2.hp} Shield: {self.player2.shield_count}"
         
-        '''self.screen.blit(self.font.render(player1_text, True, GOLD_WARM), (20, 10))
-        self.screen.blit(self.font.render(player2_text, True, GOLD_WARM), (20, 40))'''
+    
         self.screen.blit(self.font.render(player1_text, True, GOLD_CLASSIC), (65, SCREEN_HEIGHT - 340))
         self.screen.blit(self.font.render(player2_text, True, GOLD_CLASSIC), (695, SCREEN_HEIGHT - 340))
 
@@ -995,8 +1012,6 @@ class Game:
                 screen.blit(text_surface, (current_x, y))
                 current_x += text_surface.get_width()+ 10
         render_target_text(self.screen, self.large_font, 230, 185, self.target)
-        '''target_text = f"Target - Red: {self.target.red_zone} Yellow: {self.target.yellow_zone} Blue: {self.target.blue_zone}"
-        self.screen.blit(self.font.render(target_text, True, WHITE_CREAM), (500, 10))'''
         
         # 绘制当前玩家和游戏状态
         current_text = f"Current Player: {self.current_player.name}"
@@ -1022,10 +1037,6 @@ class Game:
         # 绘制按钮（垂直排列）
         for button in self.buttons.values():
             button.draw(self.screen)
-        
-        # 绘制玩家标识
-        '''self.screen.blit(self.font.render("Player1", True, YELLOW_ELECTRIC), (30, SCREEN_HEIGHT - 340))
-        self.screen.blit(self.font.render("Player2", True, YELLOW_ELECTRIC), (520, SCREEN_HEIGHT - 340))'''
         
         # 绘制双方手牌（分得更开）
         # 玩家1的手牌（左侧）
@@ -1083,11 +1094,7 @@ class Game:
         
         # 绘制操作消息
         messages_y = history_y + 128
-        '''
-        self.screen.blit(self.font.render("Operations Message:", True, GOLD_LIGHT), (500, messages_y))
-        for i, msg in enumerate(self.action_messages):
-            self.screen.blit(self.small_font.render(msg, True, BLACK), (500, messages_y + 25 + i * 20))'''
-        
+    
         # 绘制选中的卡牌
         if self.selected_cards:
             selected_text = " ".join(card.value for card in self.selected_cards)
@@ -1167,14 +1174,15 @@ class Game:
     
     def run(self):
         """运行游戏"""
-        self.play_background_music()  # 开始播放背景音乐
+        #self.play_background_music()  # 开始播放背景音乐
+        # 开始播放第一首音乐
+        self.play_next_music()
         running = True
     
         while running:
             mouse_pos = pygame.mouse.get_pos()
             mouse_pressed = pygame.mouse.get_pressed()  # 获取当前鼠标状态
         
-
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     running = False
@@ -1187,6 +1195,10 @@ class Game:
                 button.check_hover(mouse_pos)
                 # 更新按下状态（如果鼠标左键按下且悬停在按钮上）
                 button.is_pressed = mouse_pressed[0] and button.is_hovered
+
+            # 检查当前音乐是否播放完毕，如果是则播放下一首
+            if not pygame.mixer.music.get_busy():
+                self.play_next_music()
         
             self.update()
             self.draw()
@@ -1215,5 +1227,6 @@ class Game:
         pygame.quit()
 
 game = Game()
+
 if __name__ == "__main__":
     game.run()
