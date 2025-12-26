@@ -19,7 +19,7 @@ from Demonbot_3 import DemonAgent_V3
 from Demonbot_4 import DemonAgent_V4
 from Demonbot_5 import DemonAgent_V5
 import os
-os.environ["WANDB_API_KEY"] = "aa28905ac52e47e17f29015051d62a5c4b71d186"
+
 import wandb
 
 # --- 经验池与网络结构 ---
