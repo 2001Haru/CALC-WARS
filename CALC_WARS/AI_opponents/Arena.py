@@ -1,17 +1,5 @@
 """
-Arena for model-vs-script evaluation (inference only)
-
-Usage example:
-    python Arena.py --model ppo_311026_1.pth --games 3000 --device cpu --deterministic
-
-This script:
-- Loads a saved checkpoint (expects key 'policy_net_state_dict' or raw state_dict)
-- Builds a CommanderNet and performs pure inference (no training)
-- Plays N games vs each of DemonAgent, DemonAgent_V2, DemonAgent_V3
-- Each game has max length (default 2048); if exceeded, winner decided by higher HP
-- Prints wins / losses / draws and win rates
-
-Requirements: run from repository root where modules in this folder are importable.
+模型性能评估Arena：与多个版本的Demon机器人对战，统计胜率
 """
 import argparse
 import time
@@ -28,19 +16,19 @@ from Demonbot_2 import DemonAgent_V2
 from Demonbot_3 import DemonAgent_V3
 from Demonbot_4 import DemonAgent_V4
 from Demonbot_5 import DemonAgent_V5
+from Demonbot_6 import DemonAgent_V6  # 六代恶魔机器人
 import sys
 
-# ===== USER CONFIG: edit these values directly (no CLI needed) =====
-# Fill your model path and evaluation parameters here
-MODEL_PATH = r"D:\HALcode\Gameplay\CALC_WARS\ppo_369500_1.pth"  # <-- put your model file path here
-GAMES_PER_OPPONENT = 3000                # number of games vs each demon
-MAX_STEPS = 2048                         # max steps per game
-DEVICE = "cpu"                          # 'cpu' or 'cuda'
-DETERMINISTIC = True                     # True -> argmax, False -> sample
-HIDDEN_SIZE = 512                        # network hidden size (match training)
-NUM_BLOCKS = 8                           # network depth (match training)
+
+MODEL_PATH = r"D:\HALcode\Gameplay\CALC_WARS\Model_checkpoints\ppo_490500_1.pth"  # 模型检查点路径
+# 如果您想要测试不同检查点性能，请将上方路径改为您电脑中该检查点文件绝对路径。
+GAMES_PER_OPPONENT = 3000                # 每个对手的对局数
+MAX_STEPS = 2048                         # 每场对局的最大步数
+DEVICE = "cpu"                          
+DETERMINISTIC = True                     # 推理模式
+HIDDEN_SIZE = 512                        # 网络隐藏层大小 (match training)
+NUM_BLOCKS = 8                           # 网络Resblock块数量 (match training)
 SEED = None                              # optional random seed
-# ================================================================
 
 
 class ModelPlayer:
@@ -49,11 +37,11 @@ class ModelPlayer:
         self.device = device
         self.deterministic = deterministic
 
-        # build network
+        # 网络初始化
         self.net = CommanderNet(obs_dim=92, action_dim=62, hidden_size=hidden_size, num_blocks=num_blocks)
         self.net.to(self.device)
 
-        # load checkpoint
+        # 加载检查点
         ckpt = torch.load(checkpoint_path, map_location=self.device,weights_only=False)
         state_dict = None
         if isinstance(ckpt, dict) and 'policy_net_state_dict' in ckpt:
@@ -87,10 +75,9 @@ class ModelPlayer:
             logits, _ = self.net(x)
             logits = logits.view(-1)  # shape (62,)
 
-            # apply mask: set illegal logits to large negative
+            # 应用掩码
             legal = (mask_t > 0.5)
             if legal.sum().item() == 0:
-                # no legal action (shouldn't happen often) -> End Round
                 return 61
 
             neg_inf = -1e9
@@ -113,7 +100,7 @@ class ModelPlayer:
 
 
 def play_one_game(env: Game, student: ModelPlayer, demon_agent, max_steps: int = 2048, deterministic: bool = False):
-    """Plays a single game until done or max_steps. Returns 1 if student wins, -1 demon wins, 0 draw."""
+    "''进行一次对局，返回结果：1=学生胜，-1=恶魔胜，0=平局''"""
     env.reset()
     step = 0
 
@@ -166,7 +153,9 @@ def run_evaluation(model_path: str, games_per_opponent: int = 3000, max_steps: i
     student = ModelPlayer(model_path, device=device_obj, hidden_size=hidden_size, num_blocks=num_blocks,
                           deterministic=deterministic)
 
+    # 选择Demon出场顺序
     opponents = [
+        (DemonAgent_V6, "Demon_v6"),
         (DemonAgent_V5, "Demon_v5"),
         (DemonAgent, "Demon_v1"),
         (DemonAgent_V3, "Demon_v3"),
@@ -224,7 +213,7 @@ def main():
 
     args = parser.parse_args()
 
-    # If the user didn't pass a model via CLI, prefer the file CONFIG
+    # 健壮性检查，没有检查点你就看着办吧
     if args.model is None:
         print("Using in-file CONFIG values (edit the CONFIG block at top of Arena.py to change settings)")
         model = MODEL_PATH

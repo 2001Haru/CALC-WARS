@@ -5,9 +5,9 @@ from typing import List, Dict, Optional, Tuple, Set
 
 class FastTemplateSolver:
     """
-    Solver V3: 工程化极速求解器
-    - 修复了结构匹配的 Bug (遍历 matches)
-    - 新增 Forward Pass 缓存机制 (get_reachable_sets)，大幅加速 Mask 计算
+    Solver: 求解器
+    - Forward Pass 缓存机制 (get_reachable_sets)，大幅加速 Mask 计算
+    - 基于 NumPy 的矢量化计算，提升运算速度，努力优化保证训练速度
     解释一下为什么用float64：之前用float32一直和环境有数值不对齐的幽灵bug，不得已改为64
     """
     def __init__(self):
@@ -53,7 +53,7 @@ class FastTemplateSolver:
         ops = sorted(ops)
         result = None
 
-        # --- 3张牌搜索 ---
+        # 3张牌搜索
         if min_cards <= 3 <= max_cards:
             # (N)=N 规则
             if has_brackets and target <= 13 and hand_counts.get(target, 0) > 0:
@@ -62,7 +62,7 @@ class FastTemplateSolver:
             if result is None:
                 result = self._solve_len_3_numpy(nums, ops, target, preferred_symbol)
         
-        # --- 5张牌搜索 ---
+        # 5张牌搜索
         if result is None and min_cards <= 5 <= max_cards:
             result = self._solve_len_5_numpy(nums, ops, target, preferred_symbol)
 
@@ -89,7 +89,7 @@ class FastTemplateSolver:
         reachable_3 = set()
         reachable_5 = set()
         
-        # --- 1. 计算 3张牌可达集 ---
+        # 1. 计算 3张牌可达集
         if len(nums) >= 2 and len(ops) >= 1:
             # (N) = N 特殊规则
             if has_brackets:
@@ -106,7 +106,7 @@ class FastTemplateSolver:
                     res = self._calc_vec(col_a, col_b, op)
                     self._filter_and_add(res, reachable_3)
 
-        # --- 2. 计算 5张牌可达集 ---
+        # 2. 计算 5张牌可达集
         if len(nums) >= 3 and len(ops) >= 2:
             unique_triplets = sorted(list(set(itertools.permutations(nums, 3))))
             triplets_arr = np.array(unique_triplets, dtype=np.float32)
@@ -257,7 +257,7 @@ class FastTemplateSolver:
         if op in [16, 17]: return 2
         return 1
     
-# ---------------- 使用示例 ----------------
+# 使用示例
 if __name__ == "__main__":
     solver = FastTemplateSolver()
     

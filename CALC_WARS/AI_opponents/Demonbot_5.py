@@ -4,15 +4,15 @@ from Smart_solver import FastTemplateSolver
 
 class DemonAgent_V5:
     """
-    五代恶魔机器人 (The Guardian / Counter-Attacker)
+    五代恶魔机器人 
     策略核心：剑走偏锋
     特点：
-    作为训练测试集，需要展示模型从未见过的策略，以展示模型适应性和创新性。
+    需要展示模型从未见过的策略，以考验模型适应性和创新性。
     """
     def __init__(self, logger=None):
         self.solver = FastTemplateSolver()
         self.logger = logger
-        self.name = 'Demon_v4'
+        self.name = 'Demon_v5'
         self.action_queue = deque()
         
         self.special_num_map = {
@@ -111,7 +111,10 @@ class DemonAgent_V5:
         combo = self._try_combo(['cube'], 'ST', r3, r5_empty)
         if combo: return combo
 
-        return [60] # End the Turn
+        if s['op_ended_round']:
+            return [61] # End the Round
+        else:
+            return [60] # End the Turn
     # ----------------------------------------------------
     # 辅助工具
     # ----------------------------------------------------

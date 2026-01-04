@@ -2,16 +2,17 @@ import numpy as np
 from collections import deque
 from Smart_solver import FastTemplateSolver
 
-class DemonAgent_V4:
+class DemonAgent_V6:
     """
-    四代恶魔机器人 (The Guardian / Counter-Attacker)
+    六代恶魔机器人 (The Guardian / Counter-Attacker)
+    策略核心：压制与反击
     特点：
-    奇异技术
+    加强五代
     """
     def __init__(self, logger=None):
         self.solver = FastTemplateSolver()
         self.logger = logger
-        self.name = 'Demon_v4'
+        self.name = 'Demon_v6'
         self.action_queue = deque()
         
         self.special_num_map = {
@@ -93,43 +94,69 @@ class DemonAgent_V4:
         
         op_count = sum(state['op_hand'])
         my_count = sum(state['my_hand'])
+        count_diff = op_count - my_count
         
-        if op_count - my_count <= -2:
-            return self.pressing_advantage(state, r3, r5_real, r5_empty)
-        elif op_count - my_count > -2:
-            return self.defence(state, r3, r5_real, r5_empty)
+        if count_diff <= -7:    # 无法偷牌巨大优势
+            return self.advantage_pressing(state, r3, r5_real, r5_empty)
+        elif -6 <= count_diff <= -1: # 能够偷牌放大优势
+            return self.advantage_creating(state, r3, r5_real, r5_empty)
+        elif 0 <= count_diff <= 2:
+            return self.diffchasing(state, r3, r5_real, r5_empty)
+        elif count_diff >= 3:
+            return self.counterback(state, r3, r5_real, r5_empty)
     # ----------------------------------------------------
     # 分支逻辑
     # ----------------------------------------------------
-    def pressing_advantage(self,s, r3, r5_real, r5_empty):
+    def advantage_pressing(self,s, r3, r5_real, r5_empty):
         # 蓝区无损攻击
         sq_act = self._get_square_attack(s, r3, r5_empty)
         if sq_act: return sq_act
-        # 如果做不到，换牌或偷牌
-        combo = self._try_combo(['cube'], 'ST', r3, r5_empty)
-        if combo: return combo
+        # 如果做不到，毁牌
         combo = self._try_combo(['0'], 'RUIN', r3, r5_empty)
         if combo: return combo
 
-        return [60] # End the Turn
-    
-    def defence(self,s, r3, r5_real, r5_empty):
-        if s['my_shield'] <= 1:
-            if self._can_make(['24'], r3, r5_empty):
-                act = self._get_make_action(['24'], r3, r5_empty)
-                return [act, 54+3, 54+3]
-            
-            sq_act = self._get_square_attack(s, r3, r5_empty)
-            if sq_act: return sq_act
-
+        if s['op_ended_round']:
             return [61] # End the Round
         else:
+            return [60] # End the Turn
+        
+    def advantage_creating(self, state, r3, r5_real, r5_empty):
+        # 扼杀对手操作空间
+        if sum(state['op_hand']) >= 2:
             combo = self._try_combo(['cube'], 'ST', r3, r5_empty)
             if combo: return combo
-            sq_act = self._get_square_attack(s, r3, r5_empty)
-            if sq_act: return sq_act
+        if sum(state['op_hand']) >= 3:
+            combo = self._try_combo(['0'], 'RUIN',r3, r5_empty)
+            if combo: return combo
+        sq_act = self._get_square_attack(state, r3, r5_empty)
+        if sq_act: return sq_act
+
+        if state['op_ended_round']:
             return [61] # End the Round
+        else:
+            return [60] # End the Turn
+    
+    def diffchasing(self, state, r3, r5_real, r5_empty):
+        # 追赶时略有区别，因为不适合肆无忌惮毁牌
+        if sum(state['op_hand']) >= 2:
+            combo = self._try_combo(['cube'], 'ST', r3, r5_empty)
+            if combo: return combo
+        sq_act = self._get_square_attack(state, r3, r5_empty)
+        if sq_act: return sq_act
+        if sum(state['op_hand']) >= 3:
+            combo = self._try_combo(['0'], 'RUIN',r3, r5_empty)
+            if combo: return combo
+
+        if state['op_ended_round']:
+            return [61] # End the Round
+        else:
+            return [60] # End the Turn
         
+    def counterback(self, state, r3, r5_real, r5_empty):
+        sq_act = self._get_square_attack(state, r3, r5_empty)
+        if sq_act: return sq_act
+        return [61]
+    
     # ----------------------------------------------------
     # 辅助工具
     # ----------------------------------------------------
@@ -158,7 +185,7 @@ class DemonAgent_V4:
         return combo
 
     def _get_zone_square_action(self, state, r3, r5_set):
-        squares = [4, 9, 16, 25, 36, 49, 64, 81, 100, 121, 144, 169]
+        squares = [4, 9, 16, 25, 36, 49, 81, 100, 121, 144, 169]
         valid = [x for x in squares if x in (state['zones']['blue'] + state['zones']['yellow'])]
         for t in valid:
             act = self._get_action_for_target(t, r3, r5_set, is_zone=True, state=state)
@@ -196,7 +223,7 @@ class DemonAgent_V4:
     def _get_make_action(self, types, r3, r5_set):
         target_list = []
         if 'cube' in types: target_list.extend([8, 27, 64])
-        if 'square' in types: target_list.extend([4, 9, 16, 25, 36, 49, 64, 81, 100, 121, 144, 169])
+        if 'square' in types: target_list.extend([4, 9, 16, 25, 36, 49, 81, 100, 121, 144, 169])
         if 'factorial' in types: target_list.extend([2, 6, 120])
         if '24' in types: target_list.append(24)
         if '1' in types: target_list.append(1)

@@ -1,3 +1,8 @@
+"""
+AI_opponents.Env_sparse 的 Docstring
+环境定义：稀疏奖励版本的计算战争游戏
+对于主游戏完全去除UI并且numpy向量化
+"""
 import pygame
 import random
 import math
@@ -452,6 +457,12 @@ class Game:
                 self.info["message"] = f"Used skill: {skill_type.name}"
                 if self.current_player == self.player1:
                     self.stats['skill_used'] += 1
+
+                if raw_action == 58 or raw_action == 55: # RUIN STEAL 不准对手没牌
+                    if sum(opponent.hand[:20]) <= 1:
+                        reward -= 0.1
+                        self.info["message"] = "Skill Card not effective"
+
                 
                 self.use_skill_card(skill_card)
             else:
@@ -461,7 +472,11 @@ class Game:
         # === 2. 结束回合/轮次 (60-61) ===
         elif raw_action == 60: # End Turn
             if self.continuous_operations <= 1:
-                reward -= 0.0001
+                reward -= 0.0005
+            if sum(self.current_player.hand[:20]) - sum(opponent.hand[:20]) <= -4:
+                reward -= 0.002
+            elif sum(self.current_player.hand[:20]) - sum(opponent.hand[:20]) >= 4:
+                reward += 0.0
             if not self.player1_round_end and not self.player2_round_end:
                 self.turn_number += 1
 
@@ -476,6 +491,8 @@ class Game:
                 self.nonaction_times += 1
 
         elif raw_action == 61: # End Round
+            if sum(self.current_player.hand[:20]) - sum(opponent.hand[:20]) <= -4:
+                reward += 0.002
             self.turn_number += 1
             self.end_current_round()
             self.info["message"] = "Ended round"

@@ -18,15 +18,19 @@ from Demonbot_2 import DemonAgent_V2
 from Demonbot_3 import DemonAgent_V3
 from Demonbot_4 import DemonAgent_V4
 from Demonbot_5 import DemonAgent_V5
+from Demonbot_6 import DemonAgent_V6
 import os
-
+# os.environ["WANDB_API_KEY"] = "ICSP-XXXXXXXXXXXXXXXXXXXXXX"
+# 如果您想要使用我们的训练代码并且希望复现或者记录AI训练过程，请在wandb.ai注册账号并获取API Key，然后设置上述环境变量。
+# 非常抱歉我们绝对不能向您提供我们的API Key，这完全是我们团队的隐私内容
+# 如果您只是想要检查我们的代码并且观察训练，直接运行本文件即可。我们已经设置了offline模式的wandb
 import wandb
 
-# --- 经验池与网络结构 ---
+# 经验池与网络结构
 class GoldExperienceBuffer:
     """
-    精英经验池：使用最小堆维护历史表现最好的 Top-K 个 Episode。
-    只有总伤害超过堆顶元素的 Episode 才能进入。
+    优先经验回放：使用最小堆维护历史表现最好的 Top-K 个 Episode。
+    设置一定奖励门槛
     """
     def __init__(self, max_episodes: int = 200):
         self.max_episodes = max_episodes
@@ -47,13 +51,13 @@ class GoldExperienceBuffer:
         if not (damage_ok or reward_ok):
             return
         
-        # 压缩存储以节省内存
+        # 压缩存储
         ep_data = {
             'states': np.array(episode.states, dtype=np.float32),
             'actions': np.array(episode.actions, dtype=np.int64)
         }
         
-        # FIFO 逻辑：直接添加，如果满了就移除最旧的
+        # FIFO 逻辑。直接添加，如果满了就移除最旧的
         self.buffer.append(ep_data)
         if len(self.buffer) > self.max_episodes:
             self.buffer.pop(0)
@@ -111,7 +115,7 @@ class GoldExperienceBuffer:
         return 0.0
 
 class OpponentPool:
-    """管理历史策略的快照池"""
+    """管理历史策略对手池"""
     def __init__(self, capacity: int = 10, pool_dir: str = "./opponent_pool"):
         self.capacity = capacity
         self.pool_dir = Path(pool_dir)
@@ -136,6 +140,7 @@ class OpponentPool:
                     print(f"  Warning: Failed to load metadata from {metadata_path}: {e}")
                     win_rate, uses, age = 0.5, 0, 0
             else:
+                # 为已存在对手设置基本参数，代码健壮性
                 win_rate, uses, age = 0.5, 0, 0
                 meta = {'win_rate': win_rate, 'uses': uses, 'age': age}
                 try:
@@ -153,6 +158,7 @@ class OpponentPool:
         print(f"✓ Loaded {loaded_count} existing opponents")
     
     def _compute_diversity_score(self, new_policy_state_dict: dict) -> float:
+        # 策略多样性检查，原本使用KL离散度，为了简便改为L2离散度
         if not self.opponents: return 0.0
         total_distance = 0.0
         for opp in self.opponents:
@@ -196,6 +202,7 @@ class OpponentPool:
         print(f"  Added opponent from episode {episode}")
     
     def sample_opponent(self, strategy: str = "oldest") -> Tuple[dict, int]:
+        # 按照胜率采样对手
         if not self.opponents: return None, -1
         for opp in self.opponents: opp['age'] += 1
         
@@ -224,6 +231,7 @@ class OpponentPool:
         return None, -1
     
     def update_stats(self, idx: int, won: bool):
+        # 时间加权计算胜率
         if 0 <= idx < len(self.opponents):
             opp = self.opponents[idx]
             opp['win_rate'] = opp['win_rate'] * 0.9 + (1.0 if won else 0.0) * 0.1
@@ -231,7 +239,8 @@ class OpponentPool:
     def __len__(self): return len(self.opponents)
 
 class ResBlock(nn.Module):
-    """残差块：让网络可以堆得更深而不退化"""
+    """残差块"""
+    # 两层线性层
     def __init__(self, size):
         super().__init__()
         self.net = nn.Sequential(
@@ -307,7 +316,7 @@ class CommanderNet(nn.Module):
                     nn.init.constant_(module.bias, 0)
 
     def forward(self, x):
-        # 预处理 (防止 NaN)
+        # 预处理 防止 NaN
         if torch.isnan(x).any() or torch.isinf(x).any():
             x = torch.nan_to_num(x, nan=0.0, posinf=1.0, neginf=-1.0)
         
@@ -357,13 +366,14 @@ class Episode:
         self.episode_length += 1
     
     def finalize(self, last_value: float = 0.0):
+        # 请注意，由于我们将第一个动作与第一个状态对齐了，所以对于局末状态必须追加一个value！
         assert not self.is_finalized
         self.values.append(last_value)
         self.is_finalized = True
     
     def to_batch(self) -> Dict[str, np.ndarray]:
         """
-        [关键修改] 将 values 切分为当前值和下一个状态的值，确保形状完全对齐
+        将 values 切分为当前值和下一个状态的值，确保形状完全对齐
         """
         assert self.is_finalized
         v_np = np.array(self.values, dtype=np.float32)
@@ -381,6 +391,7 @@ class Episode:
         }
     
     def copy(self):
+        # 将Episodes储存到TrajectoryBuffer时需要重新赋予内存地址
         assert self.is_finalized
         copied = Episode(self.player_id)
         copied.states = self.states.copy()
@@ -411,7 +422,8 @@ class Episode:
     
 
 class TrajectoryBuffer:
-    """[修改] 不再成对存储，只存 Student Episode 用于 PPO"""
+    """ 不再成对存储，只存 Student Episode 用于 PPO"""
+    # 我们只使用主模型轨迹
     def __init__(self, capacity: int = 100):
         self.capacity = capacity
         self.episodes: deque = deque(maxlen=capacity)
@@ -421,6 +433,7 @@ class TrajectoryBuffer:
         self.episodes.append(episode.copy())
     
     def sample_batch(self, recent_num: int = None) -> Optional[Dict[str, np.ndarray]]:
+        # 保证与Episodes接口兼容
         if not self.episodes: return None
         
         all_data = {
@@ -443,6 +456,7 @@ class TrajectoryBuffer:
 
 
 class PPOTrainer:
+    """核心训练对象"""
     def __init__(self, policy_net: nn.Module, optimizer: torch.optim.Optimizer,
                  scaler: torch.cuda.amp.GradScaler, config: Dict[str, Any],
                  gold_buffer: GoldExperienceBuffer = None):
@@ -465,8 +479,9 @@ class PPOTrainer:
     
     def compute_gae(self, rewards, values, next_values, dones):
         """
-        [关键修改] 使用 next_values 直接对齐，彻底解决形状不匹配和边界计算问题
+        使用 next_values 直接对齐，彻底解决形状不匹配和边界计算问题
         """
+        # 请注意最后追加lastvalue的处理！！
         advantages = np.zeros_like(rewards)
         returns = np.zeros_like(rewards)
         rewards = rewards / self.reward_scaling
@@ -504,7 +519,7 @@ class PPOTrainer:
         ret_t = torch.FloatTensor(returns_np).to(device)
         masks = torch.BoolTensor(rollout['masks']).to(device)
         
-        # 3. 计算 Explained Variance (形状现在完美对齐 N=1527)
+        # 3. 计算 Explained Variance 
         ev = 0.0
         with torch.no_grad():
             y_true = returns_np
@@ -522,6 +537,7 @@ class PPOTrainer:
         for _ in range(ppo_epochs):
             indices = torch.randperm(len(states))
             for start in range(0, len(states), self.mini_batch_size):
+                # 健壮性检查，防止更新超出边界
                 end = min(start + self.mini_batch_size, len(states))
                 if end - start < self.mini_batch_size // 2: continue
 
@@ -531,6 +547,7 @@ class PPOTrainer:
                 with torch.amp.autocast('cuda'):
                     logits, values = self.policy_net(states[idx])
                     logits = logits.masked_fill(~masks[idx], -1e4)
+                    # 请注意，我们这里无法保证掩码的彻底性。所以实际step还需要检查
                     
                     dist = Categorical(logits=logits)
                     new_log_probs = dist.log_prob(actions[idx])
@@ -538,6 +555,7 @@ class PPOTrainer:
 
                     ratio = torch.exp(new_log_probs - old_log_probs[idx])
                     surr1 = ratio * adv_t[idx]
+                    # PPO-clip实现
                     surr2 = torch.clamp(ratio, 1-self.clip_param, 1+self.clip_param) * adv_t[idx]
                     policy_loss = -torch.min(surr1, surr2).mean()
                     
@@ -554,7 +572,9 @@ class PPOTrainer:
                         if bc_s is not None:
                             bc_logits, _ = self.policy_net(bc_s.to(device))
                             bc_loss = F.cross_entropy(bc_logits, bc_a.to(device))
-                    
+
+                    # 请注意，我们的loss是加权的PPO与BC
+                    # 熵系数鼓励策略分布扁平化探索
                     total_loss = policy_loss + self.value_coef * value_loss - self.entropy_coef * entropy + self.bc_coef * bc_loss
 
                 self.scaler.scale(total_loss).backward()
@@ -563,6 +583,7 @@ class PPOTrainer:
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
                 
+                # 数据监控
                 metrics_acc['loss_total'].append(total_loss.item())
                 metrics_acc['loss_policy'].append(policy_loss.item())
                 metrics_acc['loss_value'].append(value_loss.item())
@@ -584,12 +605,13 @@ class SelfPlayAgent:
         self.opponent_net = None
         self.current_opponent_idx = -1
         
-        # 集成魔王机器人
+        # 集成Demon脚本专家
         self.demon_v1 = DemonAgent()
         self.demon_v2 = DemonAgent_V2()
         self.demon_v3 = DemonAgent_V3()
         self.demon_v4 = DemonAgent_V4()
         self.demon_v5 = DemonAgent_V5()
+        self.demon_v6 = DemonAgent_V6()
         self.current_demon = None
         
         # 对手网络初始化
@@ -601,6 +623,7 @@ class SelfPlayAgent:
             ).to(device)
 
     def load_opponent(self, opponent_state_dict: dict, idx: int):
+        # 请注意pytorch的weights_only兼容性
         if self.opponent_net is not None:
             self.opponent_net.load_state_dict(opponent_state_dict)
             for param in self.opponent_net.parameters():
@@ -621,14 +644,18 @@ class SelfPlayAgent:
             logits, values = net(state_t)
             logits = logits.masked_fill(~mask_t, float('-inf'))
             logits = torch.clamp(logits, min=-1e5, max=1e3)
+            # 掩码裁剪，防止未知的inf处理精度问题
             dist = Categorical(logits=logits)
             
+            # 推理时注意开启deterministic
             if deterministic:
                 action = dist.probs.argmax(dim=-1)
             else:
                 action = dist.sample()
 
             if not mask_t[0, action.item()]:
+                # 没合法动作则随便找一个
+                # 极其罕见，代码健壮性
                 valid_probs = dist.probs.masked_fill(~mask_t, 0)
                 action = valid_probs.argmax(dim=-1)
             
@@ -675,6 +702,7 @@ class TrainingManager:
         self.episode_rewards = deque(maxlen=100)
         self.episode_lengths = deque(maxlen=100)
 
+        # 请注意，我们将主模型轨迹与对手分开存储！
         self.episodes_0 = Episode(player_id = 0)
         self.episodes_1 = Episode(player_id = 1)
         
@@ -693,16 +721,19 @@ class TrainingManager:
             'rounds': deque(maxlen=1000),             # 平均每局轮次数
             'turns': deque(maxlen=1000),               # 平均每局回合次数
             'action_hist': deque(maxlen=1000),          # 动作分布
+            'action_hist_1': deque(maxlen=1000),          # 对手动作分布
             'counter_Demon_v1': deque(maxlen=1000),        # 与魔王v1交手
             'counter_Demon_v2': deque(maxlen=1000),        # 与魔王v2交手
             'counter_Demon_v3': deque(maxlen=1000),        # 与魔王v3交手
             'counter_Demon_v4': deque(maxlen=1000),        # 与魔王v4交手
             'counter_Demon_v5': deque(maxlen=1000),        # 与魔王v5交手
+            'counter_Demon_v6': deque(maxlen=1000),        # 与魔王v6交手
             'win_Demon_v1': deque(maxlen=1000) ,           # 打败魔王v1
             'win_Demon_v2': deque(maxlen=1000) ,           # 打败魔王v2
             'win_Demon_v3': deque(maxlen=1000) ,           # 打败魔王v3
             'win_Demon_v4': deque(maxlen=1000) ,           # 打败魔王v4
             'win_Demon_v5': deque(maxlen=1000) ,           # 打败魔王v5
+            'win_Demon_v6': deque(maxlen=1000) ,           # 打败魔王v6
         }
 
         
@@ -724,7 +755,7 @@ class TrainingManager:
         )
         self.opponent_match_results = deque(maxlen=100)
 
-        # --- PHASE 2 LOGIC: Load Checkpoint if needed ---
+        # 阶段2逻辑，我们需要接入之前保存的检查点
         if self.config.get('run_phase') == 2 and self.config.get('checkpoint_path'):
             print(f"\n PHASE 2 INITIALIZATION: Loading checkpoint from {self.config['checkpoint_path']}")
             self.load_checkpoint(self.config['checkpoint_path'])
@@ -736,33 +767,37 @@ class TrainingManager:
                 weight_decay=config.get('weight_decay', 0.01)
             )
             self.trainer.optimizer = self.optimizer
-            print("✓ Optimizer reset for Phase 2 fine-tuning")
+            print(" Optimizer reset for Phase 2 fine-tuning")
 
     def collect_rollout(self) -> Tuple[float, int]:
         """收集一个episode"""
+        # 每5局更换一个对手，梯度稳定性
         if self.use_opponent_pool and self.episode_num % 5 == 0: 
             opponent_weights, opp_idx = self.opponent_pool.sample_opponent(self.opponent_sampling_strategy)
             if opponent_weights is not None:
                 self.agent.load_opponent(opponent_weights, opp_idx)
 
-        # --- 魔王降临机制 ---
+        # Demon脚本出现机制
         is_scripted_opponent = False
         if random.random() < config.get('counter_demon_prob', 0.5): 
             is_scripted_opponent = True
-            # 随机选择一代魔王
-            # 观察到疑似的策略更新冲突，暂时只允许 v1 出场
-            self.agent.current_demon = \
-    random.choices([self.agent.demon_v1, self.agent.demon_v2, self.agent.demon_v3, self.agent.demon_v4, self.agent.demon_v5],
-                                          weights = [0.0,0.0,0.0,0.0,1.0], k=1)[0]
+            # 加权选择Demon版本
+            self.agent.current_demon = random.choices([self.agent.demon_v1, self.agent.demon_v2, \
+                    self.agent.demon_v3, self.agent.demon_v4, self.agent.demon_v5, self.agent.demon_v6],
+                                          weights = [0.0,0.0,0.0,0.0,0.1,0.9], k=1)[0]
                 
             self.agent.current_demon.reset()
                 
         state = self.env.reset()
         done = False
+        # 监控的动作分布
+        # 请注意，0-53全部都归入我们监控的0动作，即“计算”动作
         action_hist = {i:0 for i in range(9)}
+        action_hist_1 = {i:0 for i in range(9)}
         player0_won = False
 
         while not done and (self.episodes_0.episode_length + self.episodes_1.episode_length) < self.config.get('max_episode_steps', 512):
+            # 一局最大步数裁剪防止战斗到宇宙尽头
             current_pid = 0 if self.env.current_player == self.env.player1 else 1
             model_mask = self.env.get_oracle_mask()
                 
@@ -776,9 +811,9 @@ class TrainingManager:
                 # 脚本对手：调用规则
                 action = self.agent.current_demon.get_action(state)
                 log_prob, value = 0.0, 0.0
-                # 注意，魔王的prob和value都是0，因此绝对不能进入PPO池子学习！！
+                # 注意，Demon的prob和value都是0，因此绝对不能进入PPO池子学习！！
                 
-            else:   # 自然模型调用
+            else:   # 自然历史模型调用
                 action, log_prob, value = self.agent.get_action(state, model_mask, current_pid)
                 
             # 监控模型动作分布防止纳什均衡
@@ -788,10 +823,17 @@ class TrainingManager:
                 else:
                     action_hist[action - 53] += 1
 
+            else:
+                if 0<= action <= 53:
+                    action_hist_1[0] += 1
+                else:
+                    action_hist_1[action - 53] += 1
+
             # 环境接收动作改变状态
             next_state, reward, done, info = self.env.step(action)
 
             # 从 Info 中解析伤害并累加到 Episode 对象
+            # 监控每局总伤害
             step_damage = 0
             if 'message' in info and info['message'].startswith("Damage"):
                 try:
@@ -801,12 +843,15 @@ class TrainingManager:
             episodes = self.episodes_0 if current_pid == 0 else self.episodes_1
             episodes.total_damage += step_damage
     
+            # 一局添加一步状态
             episodes.add_step(
                 state=state, action=action, log_prob=log_prob, value=value,
                 reward=reward, done=done, mask=model_mask
             )
             state = next_state
 
+
+        # --- 统计信息收集 ---
         if self.env.stats['solver_attempts'] > 0:
             avg_success = self.env.stats['solver_success'] / self.env.stats['solver_attempts']
             avg_length = self.env.stats['expr_length'] / self.env.stats['solver_success']
@@ -824,6 +869,7 @@ class TrainingManager:
         self.episodes_stats['rounds'].append(self.env.stats['rounds'])                  # 每局轮次数
         self.episodes_stats['turns'].append(self.env.stats['turns'])                  # 每局回合数
         self.episodes_stats['action_hist'].append(action_hist)                      # 动作分布 
+        self.episodes_stats['action_hist_1'].append(action_hist_1)                      # 动作分布
         
         if done:
             lose_penalty = -1.0
@@ -837,7 +883,7 @@ class TrainingManager:
                     action=61,   # 占位动作
                     log_prob=0.0,
                     value=0.0,
-                    reward=lose_penalty, # <--- 关键！注入痛感
+                    reward=lose_penalty, # 关键注入痛感
                     done=True,
                     mask=np.zeros(62)
                 )
@@ -871,22 +917,21 @@ class TrainingManager:
             if self.episodes_1.episode_length > 0: self.episodes_1.finalize(last_value= last_value_oppo)
 
         if is_scripted_opponent:
-            ver = self.agent.current_demon.name.split('_')[-1]          # 'v1'/'v2'/'v3'/'v4'/'v5'
-            for v in ('v1', 'v2', 'v3', 'v4','v5'):
+            ver = self.agent.current_demon.name.split('_')[-1]         # 记录Demon各个版本胜率
+            for v in ('v1', 'v2', 'v3', 'v4','v5','v6'):
                 flag = 1.0 if v == ver else 0.0
                 self.episodes_stats[f'counter_Demon_{v}'].append(flag)
                 self.episodes_stats[f'win_Demon_{v}'].append(flag if player0_won else 0.0)
         else:
-            for v in ('v1', 'v2', 'v3', 'v4','v5'):
+            for v in ('v1', 'v2', 'v3', 'v4','v5','v6'):
                 self.episodes_stats[f'counter_Demon_{v}'].append(0.0)
                 self.episodes_stats[f'win_Demon_{v}'].append(0.0)
         
         
-        # --- 黄金回放核心逻辑 ---
+        # 优先经验回放与一般经验回放
         # 1. 主模型 (Player 0) -> TrajectoryBuffer (PPO) + GoldBuffer (BC)
 
-        # 规则 1: 只要当前模型 (Player 0) 赢了，无论对手是谁，轨迹入池 (Self-Imitation)
-        # 特攻魔王
+        # 特攻Demon，如果战胜专家那么入池
         if player0_won and self.episodes_0.episode_reward > 0 and is_scripted_opponent:
             self.gold_buffer.add_episode(self.episodes_0)
 
@@ -903,7 +948,6 @@ class TrainingManager:
             if is_scripted_opponent:
                 # 魔王数据：由于现在魔王动作完全不同而且是静态策略，可以视为专家模型
                 # 魔王只是作为一个预先写好的决策树对手存在
-                # Case B: 魔王赢了模型 -> 魔王的教学局，不一定存
                 if not player0_won and self.episodes_1.episode_reward > 0 and \
                     self.agent.current_demon == self.agent.demon_v1:
                     self.gold_buffer.add_episode(self.episodes_1)
@@ -915,6 +959,7 @@ class TrainingManager:
                 pass    # 暂时不学习防止拟合到过去策略
 
         if self.agent.current_opponent_idx >= 0:
+            # 记录对手胜负情况
             opponent_won = not player0_won
             self.opponent_pool.update_stats(self.agent.current_opponent_idx, opponent_won)
             self.opponent_match_results.append(1 if player0_won else 0)
@@ -923,6 +968,7 @@ class TrainingManager:
         print(f"Starting training on {self.device}")
         if self.use_opponent_pool and len(self.opponent_pool) == 0:
             print("No Opponent Found. Add Self...")
+            # 无对手时先加入自己
             self.opponent_pool.add_opponent(self.policy_net.state_dict(), self.episode_num)
 
         start_time = time.time()
@@ -940,11 +986,9 @@ class TrainingManager:
             self.episodes_1.reset()
             self.episode_num += 1
 
-            total_loss = 0
-            update_count = 0
 
             # 更新策略
-            # 小更新: 只需要从 TrajectoryBuffer 采样 (里面都是 Student 数据)
+            # 小更新: 只需要从 TrajectoryBuffer 采样最近几局
             if self.episode_num % config.get('small_update_interval') == 0 and not self.TrajectoryBuffer.is_full():
                 recent_num = config.get('small_update_recent')
                 batch = self.TrajectoryBuffer.sample_batch(recent_num=recent_num)
@@ -1001,7 +1045,7 @@ class TrainingManager:
                 has_attempts = bool(stats['solver_attempts'])
 
                 rates = {}
-                for v in ('v1', 'v2', 'v3', 'v4','v5'):
+                for v in ('v1', 'v2', 'v3', 'v4','v5','v6'):
                     counter = np.sum(stats[f'counter_Demon_{v}']) if has_attempts else 0
                     win     = np.sum(stats[f'win_Demon_{v}'])     if has_attempts else 0
                     rates[v] = win / counter if counter else 0.0
@@ -1012,6 +1056,7 @@ class TrainingManager:
                 win_Demon_rate_v3 = rates['v3']
                 win_Demon_rate_v4 = rates['v4']
                 win_Demon_rate_v5 = rates['v5']
+                win_Demon_rate_v6 = rates['v6']
 
                 # 2. 计算 Commander 特有统计指标
                 stat_success_rate = np.mean(self.episodes_stats['success_rate']) if self.episodes_stats['success_rate'] else 0
@@ -1034,6 +1079,7 @@ class TrainingManager:
                     "Performance/Win_Demon_Rate_v3": win_Demon_rate_v3,
                     "Performance/Win_Demon_Rate_v4": win_Demon_rate_v4,
                     "Performance/Win_Demon_Rate_v5": win_Demon_rate_v5,
+                    "Performance/Win_Demon_Rate_v6": win_Demon_rate_v6,
                     
                     "Commander/Solver_Success_Rate": stat_success_rate,
                     "Commander/Solver_Attempts": stat_solver_atmpt,
@@ -1069,7 +1115,7 @@ class TrainingManager:
 
                 rates = {}
                 counter = {}
-                for v in ('v1', 'v2', 'v3', 'v4','v5'):
+                for v in ('v1', 'v2', 'v3', 'v4','v5','v6'):
                     counter[v] = np.sum(stats[f'counter_Demon_{v}']) if has_attempts else 0
                     win     = np.sum(stats[f'win_Demon_{v}'])     if has_attempts else 0
                     rates[v] = win / counter[v] if counter[v] else 0.0
@@ -1080,12 +1126,18 @@ class TrainingManager:
                 p_win_Demon_rate_v3 ,p_counter_Demon_v3 = rates['v3'], counter['v3']
                 p_win_Demon_rate_v4 ,p_counter_Demon_v4 = rates['v4'], counter['v4']
                 p_win_Demon_rate_v5 ,p_counter_Demon_v5 = rates['v5'], counter['v5']
+                p_win_Demon_rate_v6 ,p_counter_Demon_v6 = rates['v6'], counter['v6']
 
-                # 修复: 动作历史的正确处理
+                # 动作历史的正确处理
                 values = np.array([list(d.values()) for d in self.episodes_stats['action_hist']], dtype=np.float32)
                 mean_ = values.mean(axis=0) # shape=(9,)
                 # 将 numpy float 转为标准 float 以便格式化
                 mean_dict = {k: float(v) for k, v in enumerate(mean_)}
+
+                values_1 = np.array([list(d.values()) for d in self.episodes_stats['action_hist_1']], dtype=np.float32)
+                mean_1 = values_1.mean(axis=0) # shape=(9,)
+                # 将 numpy float 转为标准 float 以便格式化
+                mean_dict_1 = {k: float(v) for k, v in enumerate(mean_1)}
 
                 print(f"\n=== Episode {self.episode_num} === | Duration hour:{duration_hour:.2f}")
                 print(f"Avg Reward: {avg_reward:.2f} | Avg Length: {avg_length:.1f} | Avg Loss: {avg_loss:.4f}\n")
@@ -1102,6 +1154,11 @@ class TrainingManager:
                 print("Action Dist:", end=" ")
                 for k, v in mean_dict.items():
                     print(f"{k}:{v:.2f}", end=" | ")
+
+                print("Action Dist 1:", end=" ")
+                for k, v in mean_dict_1.items():
+                    print(f"{k}:{v:.2f}", end=" | ")
+
                 print(f'Win DemonV1 Rate: {(p_win_Demon_rate_v1 * 100):.2f}% | '
                       f'Counter DemonV1 Times: {p_counter_Demon_v1}')
                 print(f'Win DemonV2 Rate: {(p_win_Demon_rate_v2 * 100):.2f}% | '
@@ -1112,6 +1169,8 @@ class TrainingManager:
                       f'Counter DemonV4 Times: {p_counter_Demon_v4}')
                 print(f'Win DemonV5 Rate: {(p_win_Demon_rate_v5 * 100):.2f}% | '
                       f'Counter DemonV5 Times: {p_counter_Demon_v5}')
+                print(f'Win DemonV6 Rate: {(p_win_Demon_rate_v6 * 100):.2f}% | '
+                      f'Counter DemonV6 Times: {p_counter_Demon_v6}')
 
                 if self.use_opponent_pool and len(self.opponent_pool) > 0:
                     print("\n--- Opponent Pool Stats ---")
@@ -1148,7 +1207,7 @@ class TrainingManager:
             'losses': list(self.losses),
             'config': self.config
         }, f"ppo_{episode}_1.pth")
-        print(f"✓ Checkpoint saved at episode {episode}")
+        print(f"Checkpoint saved at episode {episode}")
     
     def load_checkpoint(self, filepath: str):
         """加载检查点"""
@@ -1162,60 +1221,63 @@ class TrainingManager:
 
 config = {
         'run_phase': 2, 
-        'checkpoint_path': 'ppo_357000_1.pth', 
+        'checkpoint_path': 'ppo_463534_1.pth',  # 加载检查点
 
         'use_opponent_pool': True,
-        'opponent_pool_size': 30,
-        'opponent_pool_dir': './opponent_pool',
-        'opponent_strategy': 'weighted',
-        'opponent_update_interval': 1000,
-        'min_age_before_elimination': 400,
-        'diversity_threshold': 0.2,
-        'total_episodes': 600000,  
-        'max_episode_steps': 2048,
-        'lr': 4e-6,
-        'hidden_size': 512,
-        'num_block': 8,
-        'capacity': 200,
-        'ppo_epochs_tot': 4,
-        'ppo_epochs_lil': 8,
-        'small_update_interval': 20,
-        'small_update_recent': 50,
-        'mini_batch_size': 4096,
-        'clip_param': 0.07,
-        'value_coef': 1.5,
-        'entropy_coef': 0.03,
-        'entropy_decay': 0.99995,
-        'entropy_min': 0.02,
-        'gamma': 0.999,
-        'lam': 0.99,
-        'max_grad_norm': 0.75,
-        'log_interval': 200,
-        'print_interval': 200,
-        'print_check_interval': 100,
-        'save_interval': 500,
-        'adam_eps': 1e-5,
-        'reward_scaling': 1.0,
-        'weight_decay': 0.005,
-        'use_curriculum': False,
-        'Main_net_id': 0,
+        'opponent_pool_size': 30,                   # 对手池大小
+        'opponent_pool_dir': './opponent_pool',        # 对手池存储目录
+        'opponent_strategy': 'weighted',                
+        'opponent_update_interval': 1000,               # 每多少集更新一次对手池
+        'min_age_before_elimination': 400,              # 对手最小存活期
+        'diversity_threshold': 0.2,                     # 多样性阈值
+        'total_episodes': 600000,                       # 总训练集数
+        'max_episode_steps': 2048,                  # 每局最大步数  
+        'lr': 5e-6,                             # 学习率
+        'hidden_size': 512,                     # 隐藏层大小
+        'num_block': 8,                         # Resblock块数
+        'capacity': 200,                        # Trajectory Buffer容量
+        'ppo_epochs_tot': 4,                    # 大更新PPO Epochs
+        'ppo_epochs_lil': 8,                    # 小更新PPO Epochs
+        'small_update_interval': 20,            # 小更新间隔集数
+        'small_update_recent': 50,              # 小更新采样最近N集
+        'mini_batch_size': 4096,                # Mini-batch大小
+        'clip_param': 0.10,                     # PPO裁剪参数
+        'value_coef': 1.5,                      # Value损失系数
+        'entropy_coef': 0.05,                   # 初始熵系数
+        'entropy_decay': 0.99995,               # 熵系数衰减
+        'entropy_min': 0.02,                    # 最小熵系数
+        'gamma': 0.999,                         # 折扣因子
+        'lam': 0.99,                            # GAE参数
+        'max_grad_norm': 0.75,                  # 最大梯度范数
+        'log_interval': 200,                    # 日志记录间隔
+        'print_interval': 200,                  # 打印间隔
+        'print_check_interval': 100,            # 打印检查间隔
+        'save_interval': 500,                   # 保存间隔
+        'adam_eps': 1e-5,                       # Adam优化器epsilon
+        'reward_scaling': 1.0,                  # 奖励缩放
+        'weight_decay': 0.005,                  # 权重衰减
+        'use_curriculum': False,            
+        'Main_net_id': 0,                       # 主网络ID
         'curriculum_stage': 1,
         'source_model': None,
         # BC Config
-        'bc_coef': 0.02,
-        'gold_buffer': 5000,
+        'bc_coef': 0.02,                        # BC损失系数
+        'gold_buffer': 5000,                    # 优先经验回放容量
         'damage_threshold': 0,
         'reward_threshold': 0,
-        'counter_demon_prob': 0.6,
+        'counter_demon_prob': 0.6,              # 遇到Demon的概率
+
+        'run_mode': 'offline',                    # WandB运行模式
         }
 
 if __name__ == "__main__":
     run = wandb.init(
         project="Card-RL-Experiment",
         config=config,
-        name=f"Exp_Hier_8MLP_20_2",  
+        name=f"Exp_Hier_8MLP_25_3",  
+        mode=config.get('run_mode', 'online'), 
         save_code=True,
-        notes="稀疏奖励训练 5代Demon训练 解决过拟合",
+        notes="稀疏奖励训练 鼓励结束轮次",
     )
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -1225,12 +1287,14 @@ if __name__ == "__main__":
     demonv3_file_path = os.path.join(script_dir, "Demonbot_3.py")
     demonv4_file_path = os.path.join(script_dir, "Demonbot_4.py")
     demonv5_file_path = os.path.join(script_dir, "Demonbot_5.py")
+    demomv6_file_path = os.path.join(script_dir, "Demonbot_6.py")
     wandb.save(env_file_path, base_path=script_dir)
     wandb.save(demonv1_file_path, base_path=script_dir)
     wandb.save(demonv2_file_path, base_path=script_dir)
     wandb.save(demonv3_file_path, base_path=script_dir)
     wandb.save(demonv4_file_path, base_path=script_dir)
     wandb.save(demonv5_file_path, base_path=script_dir)
+    wandb.save(demomv6_file_path, base_path=script_dir)
 
     env = Game()
     trainer = TrainingManager(env, config)
